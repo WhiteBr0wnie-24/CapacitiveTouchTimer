@@ -5,10 +5,14 @@
 #define CENTER_BUTTON_THRESHOLD 150
 #define FINGER_DETECTION_COOLDOWN 125
 #define CENTER_BUTTON_HELD_THRESHOLD 10
+#define COUNTDOWN_DISPLAY_TIME 750
+#define COUNTDOWN_DP_TIME 250
+#define COUNTDOWN_PAUSE_TIME 500
 #define SECONDS_INCREASE_VALUE 5
 #define LEFT_DISPLAY_NUMBER 0
 #define RIGHT_DISPLAY_NUMBER 4
-#define DEBUG 1 // 0 .. deactivate debug output (disables the serial console); 1 ... basic output; 2 ... verbose output
+#define DEBUG 0 // 0 ... deactivate debug output (disables the serial console); 1 ... basic output; 2 ... verbose output
+#define DEMO_MODE 1 // 0 ... regular operation; 1 ... Set the time to 2 minutes and 15 seconds and start in mode 3 (useful for testing the displays)
 #define DEACTIVATE_AUTO_CALIBRATION 0
 
 LedControl lc = LedControl(7,5,6,1);
@@ -26,11 +30,13 @@ CapacitiveSensor cs_5 = CapacitiveSensor(10,11); // center button
 // 3 ... countdown
 // 4 ... notify
 int mode = 0;
+int countDownState = 0;
 int minutes = 0; // Only used when setting the minutes
 int seconds = 0; // Only used when setting the seconds
 int setTime = 0; // Once the time got set, the Arduino converts the set time (minutes + seconds) to total seconds and stores the result in this variable
 long timerStartMillis = 0; // millis() value when the timer started
 long lastDirectionDetection = 0;
+long lastCountDownStateSwitch = 0;
 int active_sensor = -1;
 int last_active_sensor = -1;
 int center_button_active_for = 0;
@@ -44,6 +50,9 @@ int lastDir = 0;
 // Function prototypes
 int detectFinger(void);
 void printModeSwitchMessage(int, int);
+void displayValue(int);
+void flashDPs(bool, bool);
+void displayRemainingTime(int minutes, int seconds);
 
 void setup()
 {
@@ -59,6 +68,12 @@ void setup()
   Serial.begin(9600);
   Serial.print("Started with debug level ");
   Serial.println(DEBUG);
+#endif
+
+#if DEMO_MODE
+  timerStartMillis = millis();
+  setTime = 135;
+  mode = 3;
 #endif
    
   lc.shutdown(0,false);
@@ -76,7 +91,7 @@ void loop()
   // 3  = center button held down
   int action = detectFinger();
   
-  // Shut down the seven segment displays when the device is in its idle mode or
+  // Shut down the seven segment displays when the device is in idle mode or
   // in an invalid state
   lc.shutdown(0, (mode < 1 || mode > 4));
   lc.clearDisplay(0);
@@ -97,15 +112,12 @@ void loop()
     {
       if(action < 2)
       {
+        // Count the currently set minutes up or down depending on the detected action
+        // and make sure that the minutes stay in a valid range (between 0 and 59).
         minutes += action;
         minutes = (minutes < 0) ? 59 : minutes % 60;
 
-        int leftDisplay = minutes / 10;
-        int rightDisplay = minutes - (leftDisplay * 10);
-
-        if(leftDisplay > 0)
-          lc.setDigit(0, LEFT_DISPLAY_NUMBER, leftDisplay, false);
-        lc.setDigit(0, RIGHT_DISPLAY_NUMBER, rightDisplay, false);
+        displayValue(minutes);
 
 #if DEBUG > 0
         if(action != 0)
@@ -117,6 +129,8 @@ void loop()
       }
       else
       {
+        // When the user presses the center button for a short time, switch to the next mode
+        // Mode 2 = set seconds.
         mode = 2;
         printModeSwitchMessage(1, mode);
       }
@@ -127,15 +141,12 @@ void loop()
     {
       if(action < 2)
       {
+        // Same procedure as with the minutes...
+        
         seconds += action * SECONDS_INCREASE_VALUE;
         seconds = (seconds < 0) ? (60 - SECONDS_INCREASE_VALUE) : seconds % 60;
 
-        int leftDisplay = seconds / 10;
-        int rightDisplay = seconds - (leftDisplay * 10);
-
-        if(leftDisplay > 0)
-          lc.setDigit(0, LEFT_DISPLAY_NUMBER, leftDisplay, false);
-        lc.setDigit(0, RIGHT_DISPLAY_NUMBER, rightDisplay, false);
+        displayValue(seconds);
 
 #if DEBUG > 0
         if(action != 0)
@@ -169,15 +180,8 @@ void loop()
       {
         int remainingMinutes = remainingTime / 60;
         int remainingSeconds = remainingTime - (remainingMinutes * 60);
-
-        // TODO: Display the minutes and the seconds...
-
-#if DEBUG > 0
-        Serial.print(remainingMinutes);
-        Serial.print(" minutes, ");
-        Serial.print(remainingSeconds);
-        Serial.println(" seconds");
-#endif
+        
+        displayRemainingTime(remainingMinutes, remainingSeconds);
       }
     } break;
 
@@ -225,27 +229,33 @@ int detectFinger()
     // The user pressed the center button
     // prioritize this touch button over all other ones on the touch wheel
     // it's extremely unlikely that the user activates this button by accident.
-    // it is, however, likely that the user's finger gets close enough to the edge
-    // to falsely activate one of the ring buttons when pressing the center button
+    // it is, however, likely that the user's finger gets close enough to the ring buttons
+    // to falsely activate one of them when pressing the center button
     if(total5 > CENTER_BUTTON_THRESHOLD)
     {
-      // Make sure to only activate the button once (somewhat of a de-bounce measure)
+      // This button is now activated once the user's finger moves away from the center button
+      // before a certain amount of time has passed. This allows the software to detect both, a
+      // short press and the user pressing the center button continuously.
       if(active_sensor != 5)
       {
-        // dir = 2;
+        // Reset the counter and flag that determine whether the user holds down the button
         center_button_active_for = 0;
         center_button_held_detected = false;
       }
       else
       {
         // Increase a variable that counts how long the user holds down the center button
-        // If that value increases a certain threshold, change the direction to three (center button held down).
+        // If that value gets greater than a certain threshold,
+        // change the direction to three (center button held down).
+        // return 0 if the counter is less than the threshold value.
         center_button_active_for += 1;
         dir = (center_button_active_for >= CENTER_BUTTON_HELD_THRESHOLD) ? 3 : 0;
       }
       
       active_sensor = 5;
     }
+    // The following else/if blocks detect the other four ring buttons.
+    // This is a quick and dirty solution, but it works for now...
     else if(total1 > TOUCH_SENSOR_THRESHOLD)
     {
       if(active_sensor == 2 || (active_sensor == -1 && last_active_sensor == 2))
@@ -288,10 +298,14 @@ int detectFinger()
     }
     else
     {
+      // This else is activated once the user moves his/her finger away from any button
+      // If the finger touched the center button before being moved away and the button
+      // was not held down for too long, then return two (center button pressed for a short time).
       if(active_sensor == 5 && !center_button_held_detected)
         dir = 2;
-      
-      active_sensor = -1; // No finger detected
+
+      // No currently active button
+      active_sensor = -1;
     }
 
 #if DEBUG > 1
@@ -306,10 +320,17 @@ int detectFinger()
     }
 #endif
 
+    // This is a second de-bounce measure. Checking the button state in too short intervals often leads
+    // to imprecise measurements and false activations. Therefore, make sure to wait for a few milliseconds
+    // before reading the state again. The next two lines set values for that mechanism.
     lastDirectionDetection = millis();
     last_active_sensor = active_sensor;
 
+    // Only send the 'center button held down' return value once. If the direction is currently three and the
+    // MCU detected that the user holds down the button, return 0.
     dir = (dir == 3 && center_button_held_detected) ? 0 : dir;
+
+    // Update the center button held down detection flag.
     center_button_held_detected = center_button_held_detected || (dir == 3);
 
 #if DEBUG > 1
@@ -322,6 +343,7 @@ int detectFinger()
 #endif
   }
 
+  // Finally: return the detected direction value
   return dir;
 }
 
@@ -333,4 +355,86 @@ void printModeSwitchMessage(int o, int n)
   Serial.print(" to mode ");
   Serial.println(n);
 #endif
+}
+
+void displayRemainingTime(int remainingMinutes, int remainingSeconds)
+{
+  // Show the current time on the displays
+  // When the remaining minutes are greater then zero, first show the minutes,
+  // then flash both DPs, then show the seconds, then flash the right DP, and then
+  // wait for a while before repeating this process
+  if(remainingMinutes > 0)
+  {
+    // Display the minutes
+    if(countDownState == 0 && (millis() - lastCountDownStateSwitch > COUNTDOWN_PAUSE_TIME))
+    {
+      displayValue(remainingMinutes);
+      lastCountDownStateSwitch = millis();
+      countDownState = 1;
+
+#if DEBUG > 0
+      Serial.print(remainingMinutes);
+#endif
+    }
+    // Flash both DPs
+    else if(countDownState == 1 && (millis() - lastCountDownStateSwitch > COUNTDOWN_DISPLAY_TIME))
+    {
+      flashDPs(true, true);
+      lastCountDownStateSwitch = millis();
+      countDownState = 2;
+
+#if DEBUG > 0
+    Serial.print("..");
+#endif
+    }
+    // Display the remaining seconds
+    else if(countDownState == 2 && (millis() - lastCountDownStateSwitch > COUNTDOWN_DP_TIME))
+    {
+      displayValue(remainingSeconds);
+      lastCountDownStateSwitch = millis();
+      countDownState = 3;
+
+#if DEBUG > 0
+      Serial.print(remainingSeconds);
+#endif
+    }
+    // Flash the right DP
+    else if(countDownState == 3 && (millis() - lastCountDownStateSwitch > COUNTDOWN_DISPLAY_TIME))
+    {
+      flashDPs(false, true);
+      lastCountDownStateSwitch = millis();
+      countDownState = 4;
+      
+#if DEBUG > 0
+    Serial.println(".");
+#endif
+    }
+    // Turn the display off for a short time
+    else if(countDownState == 4 && (millis() - lastCountDownStateSwitch > COUNTDOWN_DP_TIME))
+    {
+      countDownState = 0;
+    }
+  }
+  else
+  {
+    // Constantly display the seconds when the remaining minutes are below zero
+    displayValue(remainingSeconds);
+  }
+}
+
+void displayValue(int value)
+{
+  int leftDisplay = value / 10;
+  int rightDisplay = value - (leftDisplay * 10);
+
+  if(leftDisplay > 0)
+    lc.setDigit(0, LEFT_DISPLAY_NUMBER, leftDisplay, false);
+  lc.setDigit(0, RIGHT_DISPLAY_NUMBER, rightDisplay, false);
+}
+
+void flashDPs(bool left, bool right)
+{
+  lc.clearDisplay(0);
+  lc.setChar(0, LEFT_DISPLAY_NUMBER, ' ', left);
+  lc.setChar(0, RIGHT_DISPLAY_NUMBER, ' ', right);
 }
