@@ -1,13 +1,14 @@
 #include "LedControl.h"
 #include <CapacitiveSensor.h>
 
-#define TOUCH_SENSOR_THRESHOLD 120 // Note: Don't make these values too low! Otherwise, the long wires going from the ring PCB to the MCU interfere with one another. possible improvement: a small controller on the ring pcb does the decoding and sends a value to the MCU.
+#define TOUCH_SENSOR_THRESHOLD 120 // Note: Don't make these values too low! Otherwise, the long wires going from the ring PCB to the MCU interfere with one another.
 #define CENTER_BUTTON_THRESHOLD 150
 #define FINGER_DETECTION_COOLDOWN 125
+#define CENTER_BUTTON_HELD_THRESHOLD 10
 #define SECONDS_INCREASE_VALUE 5
 #define LEFT_DISPLAY_NUMBER 0
 #define RIGHT_DISPLAY_NUMBER 4
-#define DEBUG 2
+#define DEBUG 1 // 0 .. deactivate debug output (disables the serial console); 1 ... basic output; 2 ... verbose output
 #define DEACTIVATE_AUTO_CALIBRATION 0
 
 LedControl lc = LedControl(7,5,6,1);
@@ -32,6 +33,13 @@ long timerStartMillis = 0; // millis() value when the timer started
 long lastDirectionDetection = 0;
 int active_sensor = -1;
 int last_active_sensor = -1;
+int center_button_active_for = 0;
+bool center_button_held_detected = false;
+bool countdownPaused = false;
+
+#if DEBUG > 1
+int lastDir = 0;
+#endif
 
 // Function prototypes
 int detectFinger(void);
@@ -67,11 +75,19 @@ void loop()
   // 2  = center button pressed
   // 3  = center button held down
   int action = detectFinger();
-
+  
   // Shut down the seven segment displays when the device is in its idle mode or
   // in an invalid state
   lc.shutdown(0, (mode < 1 || mode > 4));
   lc.clearDisplay(0);
+
+  // Go back to the idle state when the user holds down the center button
+  // This should happen regardless of the current state of the device
+  if(action == 3)
+  {
+    mode = 0;
+    printModeSwitchMessage(3, mode);
+  }
 
   // Perform an action depending on the current state of the device
   switch(mode)
@@ -140,7 +156,7 @@ void loop()
 
 // Countdown
     case 3:
-    {
+    {  
       long secondsPassed = (millis() - timerStartMillis) / 1000L;
       long remainingTime = setTime - secondsPassed;
       
@@ -215,7 +231,18 @@ int detectFinger()
     {
       // Make sure to only activate the button once (somewhat of a de-bounce measure)
       if(active_sensor != 5)
-        dir = 2;
+      {
+        // dir = 2;
+        center_button_active_for = 0;
+        center_button_held_detected = false;
+      }
+      else
+      {
+        // Increase a variable that counts how long the user holds down the center button
+        // If that value increases a certain threshold, change the direction to three (center button held down).
+        center_button_active_for += 1;
+        dir = (center_button_active_for >= CENTER_BUTTON_HELD_THRESHOLD) ? 3 : 0;
+      }
       
       active_sensor = 5;
     }
@@ -260,7 +287,12 @@ int detectFinger()
       active_sensor = 4;
     }
     else
+    {
+      if(active_sensor == 5 && !center_button_held_detected)
+        dir = 2;
+      
       active_sensor = -1; // No finger detected
+    }
 
 #if DEBUG > 1
     if(last_active_sensor != active_sensor)
@@ -268,10 +300,26 @@ int detectFinger()
       Serial.print("Active sensor = ");
       Serial.println(active_sensor);
     }
+    if(dir == 3 && !center_button_held_detected)
+    {
+      Serial.println("Center button held down!");
+    }
 #endif
 
     lastDirectionDetection = millis();
     last_active_sensor = active_sensor;
+
+    dir = (dir == 3 && center_button_held_detected) ? 0 : dir;
+    center_button_held_detected = center_button_held_detected || (dir == 3);
+
+#if DEBUG > 1
+  if(lastDir != dir)
+  {
+    Serial.print("Direction = ");
+    Serial.println(dir);
+    lastDir = dir;
+  }
+#endif
   }
 
   return dir;
