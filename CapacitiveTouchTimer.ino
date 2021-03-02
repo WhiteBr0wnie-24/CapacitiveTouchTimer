@@ -5,8 +5,8 @@
 #define CENTER_BUTTON_THRESHOLD 150
 #define FINGER_DETECTION_COOLDOWN 125
 #define CENTER_BUTTON_HELD_THRESHOLD 10
-#define COUNTDOWN_DISPLAY_TIME 750
-#define COUNTDOWN_DP_TIME 250
+#define COUNTDOWN_DISPLAY_TIME 1000
+#define COUNTDOWN_DP_TIME 500
 #define COUNTDOWN_PAUSE_TIME 500
 #define SECONDS_INCREASE_VALUE 5
 #define LEFT_DISPLAY_NUMBER 0
@@ -18,10 +18,10 @@
 LedControl lc = LedControl(7,5,6,1);
 
 CapacitiveSensor cs_1 = CapacitiveSensor(8,9); // first pad in the ring
-CapacitiveSensor cs_2 = CapacitiveSensor(6,7);
-CapacitiveSensor cs_3 = CapacitiveSensor(4,5);
-CapacitiveSensor cs_4 = CapacitiveSensor(2,3); // last pad in the ring
-CapacitiveSensor cs_5 = CapacitiveSensor(10,11); // center button
+CapacitiveSensor cs_2 = CapacitiveSensor(10,11);
+CapacitiveSensor cs_3 = CapacitiveSensor(12,13);
+CapacitiveSensor cs_4 = CapacitiveSensor(0,1); // last pad in the ring
+CapacitiveSensor cs_5 = CapacitiveSensor(2,3); // center button
 
 // Change the internal mode of the clock by changing this variable
 // 0 ... idle (default)
@@ -94,7 +94,6 @@ void loop()
   // Shut down the seven segment displays when the device is in idle mode or
   // in an invalid state
   lc.shutdown(0, (mode < 1 || mode > 4));
-  lc.clearDisplay(0);
 
   // Go back to the idle state when the user holds down the center button
   // This should happen regardless of the current state of the device
@@ -424,6 +423,8 @@ void displayRemainingTime(int remainingMinutes, int remainingSeconds)
 
 void displayValue(int value)
 {
+  lc.clearDisplay(0);
+  
   int leftDisplay = value / 10;
   int rightDisplay = value - (leftDisplay * 10);
 
@@ -435,6 +436,7 @@ void displayValue(int value)
 void flashDPs(bool left, bool right)
 {
   lc.clearDisplay(0);
+  
   lc.setChar(0, LEFT_DISPLAY_NUMBER, ' ', left);
   lc.setChar(0, RIGHT_DISPLAY_NUMBER, ' ', right);
 }
