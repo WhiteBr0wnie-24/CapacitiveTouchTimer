@@ -61,9 +61,6 @@ void displayRemainingTime(int minutes, int seconds);
 
 void setup()
 {
-  // MCUSR = 0;
-  // wdt_disable();
-
 #if DEACTIVATE_AUTO_CALIBRATION
   // You're free to deactivate the auto calibration (everything will still work)
   // However, I've found that the detection works more reliably with the auto calibration on
@@ -453,7 +450,6 @@ void displayRemainingTime(int remainingMinutes, int remainingSeconds)
     else if(countDownState == 4 && (millis() - lastCountDownStateSwitch > COUNTDOWN_DP_TIME))
     {
       countDownState = 0;
-      lastCountDownStateSwitch = millis();
     }
   }
   else
