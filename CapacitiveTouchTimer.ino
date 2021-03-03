@@ -12,16 +12,22 @@
 #define LEFT_DISPLAY_NUMBER 0
 #define RIGHT_DISPLAY_NUMBER 4
 #define DEBUG 0 // 0 ... deactivate debug output (disables the serial console); 1 ... basic output; 2 ... verbose output (you must debug mode disable in the finished product!)
-#define DEMO_MODE 0 // 0 ... regular operation; 1 ... Set the time to 2 minutes and 15 seconds and start in mode 3 (useful for testing the displays)
+#define DEMO_MODE 1 // 0 ... regular operation; 1 ... Set the time to 2 minutes and 15 seconds and start in mode 3 (useful for testing the displays)
 #define DEACTIVATE_AUTO_CALIBRATION 0 // See the setup() method for details
+#define BEEPER_TONE_FREQUENCY 800 // in hertz
+#define BEEPER_TONE_DURATION 500 // in milliseconds
+
+#define BEEPER_PIN 4
 
 LedControl lc = LedControl(7,5,6,1);
 
+#if DEMO_MODE == 0
 CapacitiveSensor cs_1 = CapacitiveSensor(8,9); // first pad in the ring
 CapacitiveSensor cs_2 = CapacitiveSensor(10,11);
 CapacitiveSensor cs_3 = CapacitiveSensor(12,13);
 CapacitiveSensor cs_4 = CapacitiveSensor(0,1); // last pad in the ring
 CapacitiveSensor cs_5 = CapacitiveSensor(2,3); // center button
+#endif
 
 // Change the internal mode of the clock by changing this variable
 // 0 ... idle (default)
@@ -37,10 +43,12 @@ int setTime = 0; // Once the time got set, the Arduino converts the set time (mi
 long timerStartMillis = 0; // millis() value when the timer started
 long lastDirectionDetection = 0; // millis() value when the detectFinger() method last checked the capacitive pads
 long lastCountDownStateSwitch = 0; // millis() value when the last countdown mode switch occured (when displaying the minutes and seconds in mode 3).
+long lastBeeperStateSwitch = 0;
 int active_sensor = -1; // Currently active capacitive pad
 int last_active_sensor = -1; // The last valid entry stored in the active_sensor variable
 int center_button_active_for = 0; // A counter that determines how long (how many calls of the detectFinger() function) the user pressed the center button
 bool center_button_held_detected = false;
+bool beeper_on = false;
 
 #if DEBUG > 1
 int lastDir = 0;
@@ -55,6 +63,7 @@ void displayRemainingTime(int minutes, int seconds);
 
 void setup()
 {
+#if DEMO_MODE == 0
 #if DEACTIVATE_AUTO_CALIBRATION
   // You're free to deactivate the auto calibration (everything will still work)
   // However, I've found that the detection works more reliably with the auto calibration on
@@ -65,6 +74,7 @@ void setup()
   cs_4.set_CS_AutocaL_Millis(0xFFFFFFFF);
   cs_5.set_CS_AutocaL_Millis(0xFFFFFFFF);
 #endif
+#endif
 
 #if DEBUG > 0
   Serial.begin(9600);
@@ -74,9 +84,12 @@ void setup()
 
 #if DEMO_MODE
   timerStartMillis = millis();
-  setTime = 135;
+  setTime = 20;
   mode = 3;
 #endif
+
+  // Initialize the beeper output pin
+  pinMode(BEEPER_PIN, OUTPUT);
    
   lc.shutdown(0,false);
   lc.setIntensity(0,4);
@@ -194,12 +207,33 @@ void loop()
     {
       if(action == 2)
       {
+        // Turn off the beeper before switching to another mode
+        noTone(BEEPER_PIN);
+        beeper_on = false;
+        flashDPs(false, false);
+        
         mode = 0;
         printModeSwitchMessage(4, mode);
       }
       else
       {
-        // TODO: Implement beeping ...
+        if(millis() - lastBeeperStateSwitch > BEEPER_TONE_DURATION)
+        {
+          if(beeper_on)
+          {
+            flashDPs(true, false);
+            noTone(BEEPER_PIN);
+            beeper_on = false;
+          }
+          else
+          {
+            flashDPs(false, true);
+            tone(BEEPER_PIN, BEEPER_TONE_FREQUENCY);
+            beeper_on = true;
+          }
+          
+          lastBeeperStateSwitch = millis();
+        }
 #if DEBUG > 0
         Serial.println("BEEP!");
 #endif
@@ -224,12 +258,20 @@ int detectFinger()
 
   if(millis() - lastDirectionDetection > FINGER_DETECTION_COOLDOWN)
   {
+#if DEMO_MODE == 0
     long total1 = cs_1.capacitiveSensor(30);
     long total2 = cs_2.capacitiveSensor(30);
     long total3 = cs_3.capacitiveSensor(30);
     long total4 = cs_4.capacitiveSensor(30);
     long total5 = cs_5.capacitiveSensor(30);
-  
+#else
+    long total1 = 0;
+    long total2 = 0;
+    long total3 = 0;
+    long total4 = 0;
+    long total5 = 0;
+#endif
+
     // The user pressed the center button
     // prioritize this touch button over all other ones on the touch wheel
     // it's extremely unlikely that the user activates this button by accident.
