@@ -1,8 +1,9 @@
 #include "LedControl.h"
 #include <CapacitiveSensor.h>
+#include <avr/wdt.h>
 
-#define TOUCH_SENSOR_THRESHOLD 120 // Note: Don't make these values too low! Otherwise, the long wires going from the ring PCB to the MCU interfere with one another.
-#define CENTER_BUTTON_THRESHOLD 150
+#define TOUCH_SENSOR_THRESHOLD 80 // Note: Don't make these values too low! Otherwise, the long wires going from the ring PCB to the MCU interfere with one another.
+#define CENTER_BUTTON_THRESHOLD 115
 #define FINGER_DETECTION_COOLDOWN 125
 #define CENTER_BUTTON_HELD_THRESHOLD 10
 #define COUNTDOWN_DISPLAY_TIME 1000
@@ -12,22 +13,19 @@
 #define LEFT_DISPLAY_NUMBER 0
 #define RIGHT_DISPLAY_NUMBER 4
 #define DEBUG 0 // 0 ... deactivate debug output (disables the serial console); 1 ... basic output; 2 ... verbose output (you must debug mode disable in the finished product!)
-#define DEMO_MODE 1 // 0 ... regular operation; 1 ... Set the time to 2 minutes and 15 seconds and start in mode 3 (useful for testing the displays)
+#define DEMO_MODE 0 // 0 ... regular operation; 1 ... Set the time to 2 minutes and 15 seconds and start in mode 3 (useful for testing the displays)
 #define DEACTIVATE_AUTO_CALIBRATION 0 // See the setup() method for details
 #define BEEPER_TONE_FREQUENCY 800 // in hertz
 #define BEEPER_TONE_DURATION 500 // in milliseconds
-
 #define BEEPER_PIN 4
 
 LedControl lc = LedControl(7,5,6,1);
 
-#if DEMO_MODE == 0
-CapacitiveSensor cs_1 = CapacitiveSensor(8,9); // first pad in the ring
-CapacitiveSensor cs_2 = CapacitiveSensor(10,11);
-CapacitiveSensor cs_3 = CapacitiveSensor(12,13);
-CapacitiveSensor cs_4 = CapacitiveSensor(0,1); // last pad in the ring
+CapacitiveSensor cs_1 = CapacitiveSensor(9,8); // first pad in the ring
+CapacitiveSensor cs_2 = CapacitiveSensor(11,10);
+CapacitiveSensor cs_3 = CapacitiveSensor(13,12);
+CapacitiveSensor cs_4 = CapacitiveSensor(1,0); // last pad in the ring
 CapacitiveSensor cs_5 = CapacitiveSensor(2,3); // center button
-#endif
 
 // Change the internal mode of the clock by changing this variable
 // 0 ... idle (default)
@@ -63,7 +61,9 @@ void displayRemainingTime(int minutes, int seconds);
 
 void setup()
 {
-#if DEMO_MODE == 0
+  // MCUSR = 0;
+  // wdt_disable();
+
 #if DEACTIVATE_AUTO_CALIBRATION
   // You're free to deactivate the auto calibration (everything will still work)
   // However, I've found that the detection works more reliably with the auto calibration on
@@ -73,7 +73,6 @@ void setup()
   cs_3.set_CS_AutocaL_Millis(0xFFFFFFFF);
   cs_4.set_CS_AutocaL_Millis(0xFFFFFFFF);
   cs_5.set_CS_AutocaL_Millis(0xFFFFFFFF);
-#endif
 #endif
 
 #if DEBUG > 0
@@ -92,7 +91,7 @@ void setup()
   pinMode(BEEPER_PIN, OUTPUT);
    
   lc.shutdown(0,false);
-  lc.setIntensity(0,4);
+  lc.setIntensity(0,1);
   lc.clearDisplay(0);
 }
 
@@ -108,12 +107,13 @@ void loop()
   
   // Shut down the seven segment displays when the device is in idle mode or
   // in an invalid state
-  lc.shutdown(0, (mode < 1 || mode > 4));
+  // lc.shutdown(0, (mode < 1 || mode > 4));
 
   // Go back to the idle state when the user holds down the center button
   // This should happen regardless of the current state of the device
   if(action == 3)
   {
+    flashDPs(false, false);
     mode = 0;
     printModeSwitchMessage(3, mode);
   }
@@ -250,6 +250,8 @@ void loop()
       }
     } break;
   }
+
+  // wdt_reset();
 }
 
 int detectFinger()
@@ -258,19 +260,11 @@ int detectFinger()
 
   if(millis() - lastDirectionDetection > FINGER_DETECTION_COOLDOWN)
   {
-#if DEMO_MODE == 0
     long total1 = cs_1.capacitiveSensor(30);
     long total2 = cs_2.capacitiveSensor(30);
     long total3 = cs_3.capacitiveSensor(30);
     long total4 = cs_4.capacitiveSensor(30);
     long total5 = cs_5.capacitiveSensor(30);
-#else
-    long total1 = 0;
-    long total2 = 0;
-    long total3 = 0;
-    long total4 = 0;
-    long total5 = 0;
-#endif
 
     // The user pressed the center button
     // prioritize this touch button over all other ones on the touch wheel
@@ -459,31 +453,35 @@ void displayRemainingTime(int remainingMinutes, int remainingSeconds)
     else if(countDownState == 4 && (millis() - lastCountDownStateSwitch > COUNTDOWN_DP_TIME))
     {
       countDownState = 0;
+      lastCountDownStateSwitch = millis();
     }
   }
   else
   {
     // Constantly display the seconds when the remaining minutes are below zero
-    displayValue(remainingSeconds);
+    if(millis() - lastCountDownStateSwitch > COUNTDOWN_PAUSE_TIME)
+    {
+      displayValue(remainingSeconds);
+      lastCountDownStateSwitch = millis();
+    }
   }
 }
 
 void displayValue(int value)
 {
-  lc.clearDisplay(0);
-  
   int leftDisplay = value / 10;
   int rightDisplay = value - (leftDisplay * 10);
 
   if(leftDisplay > 0)
     lc.setDigit(0, LEFT_DISPLAY_NUMBER, leftDisplay, false);
+  else
+    lc.setChar(0, LEFT_DISPLAY_NUMBER, ' ', false);
+    
   lc.setDigit(0, RIGHT_DISPLAY_NUMBER, rightDisplay, false);
 }
 
 void flashDPs(bool left, bool right)
 {
-  lc.clearDisplay(0);
-  
   lc.setChar(0, LEFT_DISPLAY_NUMBER, ' ', left);
   lc.setChar(0, RIGHT_DISPLAY_NUMBER, ' ', right);
 }
