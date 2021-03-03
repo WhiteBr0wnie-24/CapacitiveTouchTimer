@@ -11,9 +11,9 @@
 #define SECONDS_INCREASE_VALUE 5
 #define LEFT_DISPLAY_NUMBER 0
 #define RIGHT_DISPLAY_NUMBER 4
-#define DEBUG 0 // 0 ... deactivate debug output (disables the serial console); 1 ... basic output; 2 ... verbose output
-#define DEMO_MODE 1 // 0 ... regular operation; 1 ... Set the time to 2 minutes and 15 seconds and start in mode 3 (useful for testing the displays)
-#define DEACTIVATE_AUTO_CALIBRATION 0
+#define DEBUG 0 // 0 ... deactivate debug output (disables the serial console); 1 ... basic output; 2 ... verbose output (you must debug mode disable in the finished product!)
+#define DEMO_MODE 0 // 0 ... regular operation; 1 ... Set the time to 2 minutes and 15 seconds and start in mode 3 (useful for testing the displays)
+#define DEACTIVATE_AUTO_CALIBRATION 0 // See the setup() method for details
 
 LedControl lc = LedControl(7,5,6,1);
 
@@ -30,18 +30,17 @@ CapacitiveSensor cs_5 = CapacitiveSensor(2,3); // center button
 // 3 ... countdown
 // 4 ... notify
 int mode = 0;
-int countDownState = 0;
+int countDownState = 0; // Used for displaying the minutes and seconds in mode 3
 int minutes = 0; // Only used when setting the minutes
 int seconds = 0; // Only used when setting the seconds
 int setTime = 0; // Once the time got set, the Arduino converts the set time (minutes + seconds) to total seconds and stores the result in this variable
 long timerStartMillis = 0; // millis() value when the timer started
-long lastDirectionDetection = 0;
-long lastCountDownStateSwitch = 0;
-int active_sensor = -1;
-int last_active_sensor = -1;
-int center_button_active_for = 0;
+long lastDirectionDetection = 0; // millis() value when the detectFinger() method last checked the capacitive pads
+long lastCountDownStateSwitch = 0; // millis() value when the last countdown mode switch occured (when displaying the minutes and seconds in mode 3).
+int active_sensor = -1; // Currently active capacitive pad
+int last_active_sensor = -1; // The last valid entry stored in the active_sensor variable
+int center_button_active_for = 0; // A counter that determines how long (how many calls of the detectFinger() function) the user pressed the center button
 bool center_button_held_detected = false;
-bool countdownPaused = false;
 
 #if DEBUG > 1
 int lastDir = 0;
@@ -57,6 +56,9 @@ void displayRemainingTime(int minutes, int seconds);
 void setup()
 {
 #if DEACTIVATE_AUTO_CALIBRATION
+  // You're free to deactivate the auto calibration (everything will still work)
+  // However, I've found that the detection works more reliably with the auto calibration on
+  // (It seems to help with de-bouncing)
   cs_1.set_CS_AutocaL_Millis(0xFFFFFFFF);
   cs_2.set_CS_AutocaL_Millis(0xFFFFFFFF);
   cs_3.set_CS_AutocaL_Millis(0xFFFFFFFF);
@@ -157,6 +159,8 @@ void loop()
       }
       else
       {
+        // Convert the chosen time to seconds and store the result in a variable
+        // before switching to mode three when the user activates the center button
         timerStartMillis = millis();
         setTime = minutes * 60 + seconds;
         mode = 3;
@@ -172,6 +176,7 @@ void loop()
       
       if(remainingTime <= 0)
       {
+        // The time's up...
         mode = 4;
         printModeSwitchMessage(3, mode);
       }
@@ -297,7 +302,7 @@ int detectFinger()
     }
     else
     {
-      // This else is activated once the user moves his/her finger away from any button
+      // This else gets activated once the user moves his/her finger away from any button
       // If the finger touched the center button before being moved away and the button
       // was not held down for too long, then return two (center button pressed for a short time).
       if(active_sensor == 5 && !center_button_held_detected)
