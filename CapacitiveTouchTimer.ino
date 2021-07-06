@@ -2,30 +2,30 @@
 #include <CapacitiveSensor.h>
 #include <avr/wdt.h>
 
-#define TOUCH_SENSOR_THRESHOLD 80 // Note: Don't make these values too low! Otherwise, the long wires going from the ring PCB to the MCU interfere with one another.
-#define CENTER_BUTTON_THRESHOLD 115
+#define TOUCH_SENSOR_THRESHOLD 55 // Note: Don't make these values too low! Otherwise, the long wires going from the ring PCB to the MCU interfere with one another.
+#define CENTER_BUTTON_THRESHOLD 80
 #define FINGER_DETECTION_COOLDOWN 125
 #define CENTER_BUTTON_HELD_THRESHOLD 10
 #define COUNTDOWN_DISPLAY_TIME 1000
 #define COUNTDOWN_DP_TIME 500
 #define COUNTDOWN_PAUSE_TIME 500
 #define SECONDS_INCREASE_VALUE 5
-#define LEFT_DISPLAY_NUMBER 0
-#define RIGHT_DISPLAY_NUMBER 4
+#define LEFT_DISPLAY_NUMBER 2
+#define RIGHT_DISPLAY_NUMBER 3
 #define DEBUG 0 // 0 ... deactivate debug output (disables the serial console); 1 ... basic output; 2 ... verbose output (you must debug mode disable in the finished product!)
 #define DEMO_MODE 0 // 0 ... regular operation; 1 ... Set the time to 2 minutes and 15 seconds and start in mode 3 (useful for testing the displays)
-#define DEACTIVATE_AUTO_CALIBRATION 0 // See the setup() method for details
+#define DEACTIVATE_AUTO_CALIBRATION 1 // See the setup() method for details
 #define BEEPER_TONE_FREQUENCY 800 // in hertz
 #define BEEPER_TONE_DURATION 500 // in milliseconds
 #define BEEPER_PIN 4
 
 LedControl lc = LedControl(7,5,6,1);
 
-CapacitiveSensor cs_1 = CapacitiveSensor(9,8); // first pad in the ring
-CapacitiveSensor cs_2 = CapacitiveSensor(11,10);
-CapacitiveSensor cs_3 = CapacitiveSensor(13,12);
-CapacitiveSensor cs_4 = CapacitiveSensor(1,0); // last pad in the ring
-CapacitiveSensor cs_5 = CapacitiveSensor(2,3); // center button
+CapacitiveSensor cs_1 = CapacitiveSensor(13,12); // first pad in the ring
+CapacitiveSensor cs_2 = CapacitiveSensor(9,8); 
+CapacitiveSensor cs_3 = CapacitiveSensor(1,0);
+CapacitiveSensor cs_4 = CapacitiveSensor(2,3);   // last pad in the ring
+CapacitiveSensor cs_5 = CapacitiveSensor(11,10); // center button
 
 // Change the internal mode of the clock by changing this variable
 // 0 ... idle (default)
@@ -88,7 +88,7 @@ void setup()
   pinMode(BEEPER_PIN, OUTPUT);
    
   lc.shutdown(0,false);
-  lc.setIntensity(0,1);
+  lc.setIntensity(0,15);
   lc.clearDisplay(0);
 }
 
@@ -257,15 +257,15 @@ int detectFinger()
 
   if(millis() - lastDirectionDetection > FINGER_DETECTION_COOLDOWN)
   {
-    long total1 = cs_1.capacitiveSensor(30);
-    long total2 = cs_2.capacitiveSensor(30);
-    long total3 = cs_3.capacitiveSensor(30);
-    long total4 = cs_4.capacitiveSensor(30);
-    long total5 = cs_5.capacitiveSensor(30);
+    long total1 = (mode == 1 || mode == 2) ? cs_1.capacitiveSensor(32) : 0;
+    long total2 = (mode == 1 || mode == 2) ? cs_2.capacitiveSensor(32) : 0;
+    long total3 = (mode == 1 || mode == 2) ? cs_3.capacitiveSensor(32) : 0;
+    long total4 = (mode == 1 || mode == 2) ? cs_4.capacitiveSensor(32) : 0;
+    long total5 = cs_5.capacitiveSensor(32);
 
     // The user pressed the center button
     // prioritize this touch button over all other ones on the touch wheel
-    // it's extremely unlikely that the user activates this button by accident.
+    // it's unlikely that the user activates this button by accident.
     // it is, however, likely that the user's finger gets close enough to the ring buttons
     // to falsely activate one of them when pressing the center button
     if(total5 > CENTER_BUTTON_THRESHOLD)
